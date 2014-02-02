@@ -11,6 +11,15 @@ Sometime you want sshconfig different based on your target host, or your current
   - source ~/.bashrc
   
 ```
-  mkdir ~/bin 2>/dev/null 
-  cd ~/bin && wget <> && (echo 'export PATH=~/bin:$PATH' >> ~/.bashrc) && source ~/.bashrc
+  
+  # download ssh in your ~/bin
+  ( mkdir ~/bin 2>/dev/null;
+    cd ~/bin && wget -o ssh https://raw.github.com/hihellobolke/sshconfig/master/ssh && chmod 755 ssh
+  )
+
+
+  # add ~/bin to PATH in your ~/.bashrc
+  echo 'export PATH=~/bin:$PATH' >> ~/.bashrc
+  source ~/.bashrc
+
 ```
