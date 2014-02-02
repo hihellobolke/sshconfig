@@ -1,0 +1,156 @@
+#!/bin/bash
+# g@ut.am
+
+SSHCONFIG_Linux=$(cat << 'HERE-DOC'
+
+Host *
+  StrictHostKeyChecking no
+  ServerAliveInterval 60
+  ForwardAgent yes
+  ServerAliveCountMax 4
+  ServerAliveInterval 30
+  SendEnv LANG LC_*
+  Ciphers arcfour,blowfish-cbc
+  ControlMaster auto
+  ControlPath   /home/gautsing/.ssh/tmp/%h_%p_%r
+  ControlPersist 48h
+
+HERE-DOC
+)
+
+
+SSHCONFIG_SunOS=$(cat << 'HERE-DOC'
+
+Host *
+  StrictHostKeyChecking no
+  ServerAliveInterval 60
+  ForwardAgent yes
+  ServerAliveCountMax 4
+  ServerAliveInterval 30
+  SendEnv LANG LC_*
+  Ciphers arcfour,blowfish-cbc
+
+HERE-DOC
+)
+
+
+SSHCONFIG_Darwin=$(cat << 'HERE-DOC'
+
+Host *
+  StrictHostKeyChecking no
+  GSSAPIAuthentication no
+  ServerAliveInterval 60
+  ForwardAgent yes
+  ServerAliveCountMax 4
+  ServerAliveInterval 30
+  SendEnv LANG LC_*
+  Ciphers arcfour,blowfish-cbc
+  ControlMaster auto
+  ControlPath   /Users/gautsing/.ssh/tmp/%h_%p_%r
+
+Host bitbucket.org
+  HostName bitbucket.org
+  PreferredAuthentications publickey
+  IdentityFile ~/.ssh/metagog@bitbucket.id
+
+
+HERE-DOC
+)
+
+
+# Program's name
+PRG="$0"
+
+# Check if we are symlink
+while [ -h "$PRG" ]; do
+  ls=`ls -ld "$PRG"`
+  link=`expr "$ls" : '.*-> \(.*\)$'`
+  if expr "$link" : '/.*' > /dev/null; then
+    PRG="$link"
+  else
+    PRG=`dirname "$PRG"`/"$link"
+  fi
+done
+
+# Directory containing program
+PRGDIR=`dirname "$PRG"`
+
+# Function emulating which
+# takes additional "path" argument
+# and exclude it when searching $PATH
+function otherwhich () {
+    local f; f=$1;
+    local d; d=$2;
+    local c; c=0;
+
+    for path in ${PATH//:/ }; do
+        if [[ $path != $d ]]; then
+            [[ -x $path/$f ]] && c=$[ c + 1 ] && echo $path/$f && return;
+        fi
+    done
+    [[ $c == 0 ]] && echo "which: no $f in ($PATH)"
+}
+
+
+# Wrapper are ssh
+# which does the real work
+sshwrapper() {
+    # pass path to real ssh to execute
+    local ssh; ssh=$1
+    shift
+
+    # Is ssh executable?
+    [[ -x $ssh ]] || exit 1
+
+    # we will create fifo in TMPDIR
+    TMPDIR=~/.ssh/tmp
+    mkdir -p $TMPDIR 2>/dev/null >/dev/null
+    [[ -d $TMPDIR ]] || exit 1
+
+    UNAME=$(uname -s)
+    case "$UNAME" in
+        Linux)
+            tmp_fifo=$(mktemp -t .ssh.fifo.XXXXXXXXX)
+            ;;
+        Darwin)
+            tmp_fifo=$(mktemp -t .ssh.fifo)
+            ;;
+        SunOS)
+            tmp_fifo=$(mktemp -t .ssh.fifo.XXXXXXXXX)
+            ;;
+        *)
+            echo 'unsupported OS'
+            exit 1
+            ;;
+    esac
+
+    # bailout if tmp file not there
+    [ ! -e $tmp_fifo ] && exit 1
+
+    # delete the tmp file, create fifo immediately
+    # cat/echo the ssh config to fifo
+    rm $tmp_fifo && mkfifo "$tmp_fifo" && (
+        if [[ -n $(eval "echo \$SSHCONFIG_$UNAME") ]]; then
+            echo $(eval "echo \$SSHCONFIG_$UNAME") > "$tmp_fifo" 2>/dev/null &
+        else  
+            config=$HOME/.ssh/config
+            [[ -f "$HOME/.ssh/config.$UNAME" ]] && config="$HOME/.ssh/config.$UNAME"
+            cat $config > "$tmp_fifo" 2>/dev/null &
+        fi
+    )
+
+    # execute ssh and pass fifo as the config file
+    $ssh -F "$tmp_fifo" "$@"
+
+    # rm the fifo file
+    rm "$tmp_fifo"
+}
+
+
+# Find the real ssh exec
+SSHPATH=$(otherwhich ssh $PRGDIR)
+
+# run function pass ssh path, and args if any
+sshwrapper $SSHPATH $*
+
+
